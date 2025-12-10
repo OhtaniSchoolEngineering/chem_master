@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=no">
     <title>共通テスト化学 完全攻略 - ChemMaster</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚛️</text></svg>">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Phosphor Icons -->
@@ -811,6 +813,7 @@
                 app.state.currentQuizIndex = 0;
                 app.state.quizFeedback = null;
                 app.state.answers = [];
+                app.state.scale = 1.0;
                 app.state.currentScreen = 'quiz';
                 app.state.selectedOptionIndex = null;
 
@@ -828,12 +831,15 @@
                 c.innerHTML = `
                     <div class="relative w-full h-full flex flex-col items-center">
                         ${app.getToolbarHTML()}
-                        <div id="quizLayer" class="absolute inset-0 flex items-center p-4 pointer-events-none w-full h-full transition-all duration-300 overflow-y-auto ${app.getCardAlignmentClass()}">
-                            <div id="quizCardContainer" class="flip-container pointer-events-auto"></div>
+                        <div id="quizLayer" class="absolute inset-0 pointer-events-none w-full h-full overflow-y-auto">
+                            <div id="quizWrapper" class="relative w-full min-h-full flex items-center p-4 transition-all duration-300 ${app.getCardAlignmentClass()}">
+                                <div id="quizCardContainer" class="flip-container pointer-events-auto relative z-30"></div>
+                                <canvas id="drawingCanvas" class="absolute inset-0 z-20 pointer-events-none touch-none"></canvas>
+                            </div>
                         </div>
-                        <canvas id="drawingCanvas" class="absolute inset-0 z-0 drawing-cursor touch-none"></canvas>
                     </div>
                 `;
+                app.state.touchMode = 'pan';
                 document.addEventListener('keydown', app.handleQuizKeydown);
                 setTimeout(() => app.setupCanvas(true), 100);
                 app.renderQuizCard();
@@ -848,9 +854,9 @@
                 const isLeft = app.state.cardAlignment === 'left';
                 const icon = document.getElementById('alignIcon');
                 if (icon) icon.className = app.state.cardAlignment === 'center' ? 'ph ph-align-left text-lg' : 'ph ph-align-center-horizontal text-lg';
-                const quizLayer = document.getElementById('quizLayer');
-                if (quizLayer) {
-                    quizLayer.className = `absolute inset-0 flex items-center p-4 pointer-events-none w-full h-full transition-all duration-300 overflow-y-auto ${app.getCardAlignmentClass()}`;
+                const quizWrapper = document.getElementById('quizWrapper');
+                if (quizWrapper) {
+                    quizWrapper.className = `relative w-full min-h-full flex items-center p-4 transition-all duration-300 ${app.getCardAlignmentClass()}`;
                 }
                 const examPaper = document.getElementById('examPaper');
                 if (examPaper) {
@@ -875,6 +881,7 @@
                             <button onclick="app.setPenColor('#333333')" class="w-6 h-6 rounded-full bg-[#333333] border border-white ring-2 ring-transparent hover:ring-indigo-400 transition-all"></button>
                             <button onclick="app.setPenColor('#ef4444')" class="w-6 h-6 rounded-full bg-[#ef4444] border border-white ring-2 ring-transparent hover:ring-indigo-400 transition-all"></button>
                             <button onclick="app.setPenMode('eraser')" class="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"><i class="ph ph-eraser text-lg"></i></button>
+                            <button onclick="app.toggleTouchMode()" class="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition-colors" title="指描画モード切替"><i id="touchModeIcon" class="ph ph-hand-pointing text-xl"></i></button>
                             <button onclick="app.clearCanvas()" class="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition-colors" title="クリア"><i class="ph ph-trash text-lg"></i></button>
                         </div>
                         <div class="w-px h-6 bg-slate-200"></div>
@@ -1161,10 +1168,16 @@
                 const dpr = window.devicePixelRatio || 1;
                 if (isQuiz) {
                     canvas = document.getElementById('drawingCanvas');
-                    if (!canvas) return;
-                    canvas.width = window.innerWidth * dpr;
-                    canvas.height = window.innerHeight * dpr;
-                    // For quiz, layout is handled by CSS (absolute inset-0)
+                    paper = document.getElementById('quizWrapper');
+                    if (!canvas || !paper) return;
+                    paper.style.pointerEvents = 'auto'; // Ensure we catch events
+                    const w = paper.offsetWidth;
+                    const h = paper.offsetHeight;
+                    canvas.width = w * dpr;
+                    canvas.height = h * dpr;
+                    // Force explicit style size to match internal size logic (1:1 visual)
+                    canvas.style.width = w + 'px';
+                    canvas.style.height = h + 'px';
                 } else {
                     paper = document.getElementById('examPaper');
                     canvas = document.getElementById('drawingCanvas');
@@ -1176,23 +1189,133 @@
                     canvas.style.width = w + 'px';
                     canvas.style.height = h + 'px';
                 }
+
+                // Always disable browser handling to allow manual control (Pen/Pan/Zoom)
+                paper.style.touchAction = 'none';
+
                 const ctx = canvas.getContext('2d');
-                ctx.scale(dpr, dpr);
+                // Use setTransform to avoid accumulation of scales
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 app.state.canvasContext = ctx;
                 app.setPenColor(app.state.penColor);
-                app.addCanvasListeners(canvas, isQuiz ? null : paper);
+                app.addCanvasListeners(canvas, paper);
             },
-            addCanvasListeners: (canvas, zoomTarget = null) => {
-                const getPos = (e) => { const rect = canvas.getBoundingClientRect(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY; const scale = zoomTarget ? app.state.scale : 1.0; return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale }; };
-                const startDraw = (e) => { if (e.touches && e.touches.length > 1) return; app.state.isDrawing = true; const pos = getPos(e); app.state.lastX = pos.x; app.state.lastY = pos.y; };
-                const draw = (e) => { if (!app.state.isDrawing) return; if (e.touches && e.touches.length > 1) return; const pos = getPos(e); const ctx = app.state.canvasContext; ctx.beginPath(); ctx.moveTo(app.state.lastX, app.state.lastY); ctx.lineTo(pos.x, pos.y); ctx.stroke(); app.state.lastX = pos.x; app.state.lastY = pos.y; };
-                const stopDraw = () => { app.state.isDrawing = false; };
-                canvas.onmousedown = startDraw; canvas.onmousemove = draw; canvas.onmouseup = stopDraw; canvas.onmouseout = stopDraw;
-                canvas.ontouchstart = (e) => { if (e.touches.length === 1) startDraw(e); else if (e.touches.length === 2 && zoomTarget) { app.state.isDrawing = false; app.state.initialPinchDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); app.state.initialScale = app.state.scale; } };
-                canvas.ontouchmove = (e) => { if (e.touches.length === 1) draw(e); else if (e.touches.length === 2 && app.state.initialPinchDistance && zoomTarget) { e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); app.updateZoom(Math.min(Math.max(app.state.initialScale * (dist / app.state.initialPinchDistance), app.state.minScale), app.state.maxScale), zoomTarget); } };
-                canvas.ontouchend = stopDraw;
+            addCanvasListeners: (canvas, listenerTarget) => {
+                if (!listenerTarget) return;
+
+                // Scroll Container Identification
+                let scrollContainer = null;
+                if (listenerTarget.id === 'quizWrapper') scrollContainer = document.getElementById('quizLayer');
+                else if (listenerTarget.id === 'examPaper') scrollContainer = document.getElementById('examScrollContainer');
+
+                // State for gestures
+                let isPanning = false;
+                let startY = 0;
+                let startScrollTop = 0;
+
+                const getPos = (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    return {
+                        x: (e.clientX - rect.left) / (app.state.scale || 1.0),
+                        y: (e.clientY - rect.top) / (app.state.scale || 1.0)
+                    };
+                };
+
+                const onPointerDown = (e) => {
+                    // Ignore if multi-touch (Zoom handled by touch events)
+                    if (!e.isPrimary && e.pointerType === 'touch') return;
+
+                    // Pen: Always Draw
+                    if (e.pointerType === 'pen') {
+                        e.preventDefault();
+                        app.state.isDrawing = true;
+                        const pos = getPos(e);
+                        app.state.lastX = pos.x;
+                        app.state.lastY = pos.y;
+                        listenerTarget.setPointerCapture(e.pointerId);
+                        return;
+                    }
+
+                    // Mouse/Touch Logic
+                    if (app.state.touchMode === 'draw' || e.pointerType === 'mouse') {
+                        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+                        e.preventDefault();
+                        app.state.isDrawing = true;
+                        const pos = getPos(e);
+                        app.state.lastX = pos.x;
+                        app.state.lastY = pos.y;
+                        listenerTarget.setPointerCapture(e.pointerId);
+                    } else {
+                        // Pan Mode (Touch)
+                        if (scrollContainer && e.pointerType === 'touch') {
+                            isPanning = true;
+                            startY = e.clientY;
+                            startScrollTop = scrollContainer.scrollTop;
+                            listenerTarget.setPointerCapture(e.pointerId);
+                            e.preventDefault();
+                        }
+                    }
+                };
+
+                const onPointerMove = (e) => {
+                    if (app.state.isDrawing) {
+                        e.preventDefault();
+                        const pos = getPos(e);
+                        const ctx = app.state.canvasContext;
+                        ctx.beginPath();
+                        ctx.moveTo(app.state.lastX, app.state.lastY);
+                        ctx.lineTo(pos.x, pos.y);
+                        ctx.stroke();
+                        app.state.lastX = pos.x;
+                        app.state.lastY = pos.y;
+                    } else if (isPanning && scrollContainer) {
+                        e.preventDefault();
+                        const dy = e.clientY - startY;
+                        scrollContainer.scrollTop = startScrollTop - dy;
+                    }
+                };
+
+                const onPointerUp = (e) => {
+                    app.state.isDrawing = false;
+                    isPanning = false;
+                    if (listenerTarget.hasPointerCapture(e.pointerId)) {
+                        listenerTarget.releasePointerCapture(e.pointerId);
+                    }
+                };
+
+                listenerTarget.onpointerdown = onPointerDown;
+                listenerTarget.onpointermove = onPointerMove;
+                listenerTarget.onpointerup = onPointerUp;
+                listenerTarget.onpointercancel = onPointerUp;
+
+                // Zoom Logic (Touch Events only)
+                listenerTarget.ontouchstart = (e) => {
+                    if (e.touches.length === 2 && (listenerTarget.id === 'examPaper' || listenerTarget.id === 'quizWrapper')) {
+                        app.state.isDrawing = false;
+                        isPanning = false; // Cancel pan
+                        app.state.initialPinchDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                        app.state.initialScale = app.state.scale || 1.0;
+                    }
+                };
+
+                listenerTarget.ontouchmove = (e) => {
+                    if (e.touches.length === 2 && app.state.initialPinchDistance) {
+                        e.preventDefault();
+                        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                        app.updateZoom(Math.min(Math.max(app.state.initialScale * (dist / app.state.initialPinchDistance), app.state.minScale || 0.5), app.state.maxScale || 3.0), listenerTarget);
+                    }
+                };
+            },
+
+            toggleTouchMode: () => {
+                app.state.touchMode = app.state.touchMode === 'pan' ? 'draw' : 'pan';
+                const icon = document.getElementById('touchModeIcon');
+                if (icon) {
+                    icon.className = app.state.touchMode === 'draw' ? 'ph ph-pencil-simple text-xl text-indigo-600' : 'ph ph-hand-pointing text-xl text-slate-500';
+                }
+                app.showToast(app.state.touchMode === 'draw' ? '描画モード: ON' : 'スクロールモード: ON');
             },
             updateZoom: (newScale, target) => { if (!target) return; app.state.scale = newScale; target.style.transform = `scale(${newScale})`; },
             zoomCanvas: (delta) => { const target = document.getElementById('examPaper'); if (!target) return; app.updateZoom(Math.min(Math.max(app.state.scale + delta, app.state.minScale), app.state.maxScale), target); },
@@ -1201,27 +1324,41 @@
             setPenMode: (mode) => { if (mode === 'eraser' && app.state.canvasContext) { app.state.canvasContext.globalCompositeOperation = 'destination-out'; app.state.canvasContext.lineWidth = 20; } },
             clearCanvas: () => { const canvas = document.getElementById('drawingCanvas'); if (canvas && app.state.canvasContext) app.state.canvasContext.clearRect(0, 0, canvas.width, canvas.height); },
             observePaperResize: () => {
-                const paper = document.getElementById('examPaper'); const canvas = document.getElementById('drawingCanvas'); if (!paper || !canvas) return;
+                const paper = document.getElementById('examPaper') || document.getElementById('quizWrapper');
+                const canvas = document.getElementById('drawingCanvas');
+                if (!paper || !canvas) return;
                 const dpr = window.devicePixelRatio || 1;
+
                 if (app.state.resizeObserver) app.state.resizeObserver.disconnect();
                 app.state.resizeObserver = new ResizeObserver(entries => {
                     for (let entry of entries) {
-                        const newHeight = paper.scrollHeight;
+                        const newHeight = paper.offsetHeight;
                         const newWidth = entry.contentRect.width;
                         if (Math.abs(canvas.height - (newHeight * dpr)) > 5) {
                             const savedData = canvas.toDataURL();
                             canvas.width = newWidth * dpr;
                             canvas.height = newHeight * dpr;
+
+
                             canvas.style.width = newWidth + 'px';
                             canvas.style.height = newHeight + 'px';
+
                             const ctx = canvas.getContext('2d');
-                            ctx.scale(dpr, dpr);
+                            // Restore scale for drawing
+                            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                             ctx.lineCap = 'round';
                             ctx.lineJoin = 'round';
                             app.state.canvasContext = ctx;
                             app.setPenColor(app.state.penColor);
+
                             const img = new Image();
-                            img.onload = () => ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                            img.onload = () => {
+                                // Draw saved image with identity transform (pixel-to-pixel)
+                                ctx.save();
+                                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                ctx.drawImage(img, 0, 0);
+                                ctx.restore(); // Restore dpr scale
+                            };
                             img.src = savedData;
                         }
                     }
