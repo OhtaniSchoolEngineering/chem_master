@@ -1401,13 +1401,14 @@
                             </div>
                         </div>
                         
-                        <div class="absolute bottom-6 right-6 z-[3000]">
-                            <button onclick="app.toggleAnswerSheet()" class="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-300 rounded-full px-5 py-4 flex items-center gap-3 transition-transform hover:-translate-y-1 hover:shadow-xl active:scale-95 group">
+                        <!-- Footer Wrapper for iOS Safari Stability -->
+                        <footer class="fixed bottom-0 left-0 w-full p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] z-[3000] pointer-events-none flex justify-end">
+                            <button onclick="app.toggleAnswerSheet()" class="pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-300 rounded-full px-5 py-4 flex items-center gap-3 transition-transform hover:-translate-y-1 hover:shadow-xl active:scale-95 group">
                                 <i class="ph ph-pencil-simple text-2xl"></i>
                                 <span class="font-bold text-sm hidden md:inline">解答用紙</span>
                                 <span class="bg-white text-indigo-700 px-2 py-0.5 rounded-full text-xs font-bold font-mono-num" id="answeredCount">0 / ${app.state.quizList.length}</span>
                             </button>
-                        </div>
+                        </footer>
                     </div>`;
 
                 document.getElementById('mainContainer').innerHTML = html;
