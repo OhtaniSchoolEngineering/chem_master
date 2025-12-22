@@ -145,6 +145,38 @@
             pointer-events: auto;
         }
 
+        /* Long MathJax Equation Support */
+        .quiz-option {
+            min-height: 3.5rem;
+            height: auto !important;
+            padding-top: 0.75rem !important;
+            padding-bottom: 0.75rem !important;
+        }
+
+        .quiz-option span {
+            flex: 1;
+            min-width: 0;
+            overflow-wrap: break-word;
+            word-break: break-all;
+        }
+
+        /* Auto-scaling MathJax content in options */
+        mjx-container[jax="SVG"] {
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+        }
+
+        mjx-container[jax="SVG"]>svg {
+            max-width: 100% !important;
+        }
+
+        /* Fix for exam mode long items */
+        .question-block .grid-cols-1,
+        .question-block .grid-cols-2 {
+            gap: 1rem;
+        }
+
         .drawing-cursor {
             cursor: crosshair;
         }
