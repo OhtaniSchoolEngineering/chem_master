@@ -181,13 +181,6 @@
             cursor: crosshair;
         }
 
-        /* Smooth scrolling for exam paper */
-        #examScrollContainer {
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior-y: contain;
-            scroll-behavior: smooth;
-        }
-
         /* Floating Toolbar */
         .floating-bar {
             position: fixed;
@@ -1652,15 +1645,8 @@
                     canvas.style.height = h + 'px';
                 }
 
-                // Configure touch handling based on mode
-                // For exam mode, allow native vertical scrolling when not in draw mode
-                // For quiz mode, disable all native handling
-                if (isQuiz) {
-                    paper.style.touchAction = 'none';
-                } else {
-                    // Exam mode: allow pan-y for smooth native scrolling
-                    paper.style.touchAction = 'pan-y';
-                }
+                // Always disable browser handling to allow manual control (Pen/Pan/Zoom)
+                paper.style.touchAction = 'none';
 
                 const ctx = canvas.getContext('2d');
                 // Use setTransform to avoid accumulation of scales
@@ -1678,15 +1664,18 @@
 
                 // Scroll Container Identification
                 let scrollContainer = null;
-                const isQuiz = (listenerTarget.id === 'quizWrapper');
-                if (isQuiz) {
-                    scrollContainer = document.getElementById('quizLayer');
-                } else {
-                    scrollContainer = document.getElementById('examScrollContainer');
-                }
+                if (listenerTarget.id === 'quizWrapper') scrollContainer = document.getElementById('quizLayer');
+                else if (listenerTarget.id === 'examPaper') scrollContainer = document.getElementById('examScrollContainer');
+
+                // State for gestures
+                let isPanning = false;
+                let startY = 0;
+                let startScrollTop = 0;
 
                 const getPos = (e) => {
                     const rect = canvas.getBoundingClientRect();
+                    // In quiz mode, canvas is not scaled, so we don't divide by scale
+                    const isQuiz = (listenerTarget.id === 'quizWrapper');
                     const currentScale = isQuiz ? 1.0 : (app.state.scale || 1.0);
                     return {
                         x: (e.clientX - rect.left) / currentScale,
@@ -1718,9 +1707,17 @@
                         app.state.lastX = pos.x;
                         app.state.lastY = pos.y;
                         listenerTarget.setPointerCapture(e.pointerId);
+                    } else {
+                        // Pan Mode (Touch)
+                        if (scrollContainer && e.pointerType === 'touch') {
+                            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                            isPanning = true;
+                            startY = e.clientY;
+                            startScrollTop = scrollContainer.scrollTop;
+                            listenerTarget.setPointerCapture(e.pointerId);
+                            e.preventDefault();
+                        }
                     }
-                    // For exam mode in pan mode, let native scrolling handle it
-                    // No custom pan handling needed
                 };
 
                 const onPointerMove = (e) => {
@@ -1734,11 +1731,16 @@
                         ctx.stroke();
                         app.state.lastX = pos.x;
                         app.state.lastY = pos.y;
+                    } else if (isPanning && scrollContainer) {
+                        e.preventDefault();
+                        const dy = e.clientY - startY;
+                        scrollContainer.scrollTop = startScrollTop - dy;
                     }
                 };
 
                 const onPointerUp = (e) => {
                     app.state.isDrawing = false;
+                    isPanning = false;
                     if (listenerTarget.hasPointerCapture(e.pointerId)) {
                         listenerTarget.releasePointerCapture(e.pointerId);
                     }
