@@ -589,7 +589,6 @@
 
             cleanup: () => {
                 app.stopTimer();
-                window.scrollTo(0, 0);
                 if (app.state.resizeObserver) { app.state.resizeObserver.disconnect(); app.state.resizeObserver = null; }
                 document.body.classList.remove('mode-immersive');
                 document.getElementById('mainHeader').classList.remove('hidden');
@@ -598,12 +597,13 @@
                 document.removeEventListener('keydown', app.handleQuizKeydown);
                 const c = document.getElementById('mainContainer');
                 if (c) {
-                    c.scrollTop = 0;
                     c.className = 'flex-grow container mx-auto px-4 py-2 max-w-6xl transition-all duration-300';
                     c.style.width = ''; c.style.height = ''; c.style.overflow = '';
                 }
                 if (app.state.isAnswerSheetOpen) app.toggleAnswerSheet();
                 app.closeDictModal();
+                // Reset scroll position after cleanup
+                setTimeout(() => window.scrollTo(0, 0), 0);
             },
 
 
@@ -1225,7 +1225,6 @@
                 document.body.style.background = '#f0f4f8';
 
                 const c = document.getElementById('mainContainer');
-                c.scrollTop = 0;
                 c.className = 'w-full h-full p-0 m-0';
                 c.style.width = '100%';
                 c.style.height = '100.1vh';
@@ -1456,7 +1455,6 @@
                 document.body.style.background = '#f0f4f8';
 
                 const c = document.getElementById('mainContainer');
-                c.scrollTop = 0;
                 c.className = 'w-full h-full p-0 m-0';
                 c.style.width = '100%';
                 c.style.height = '100.1vh';
