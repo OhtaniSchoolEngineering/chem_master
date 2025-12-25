@@ -181,6 +181,13 @@
             cursor: crosshair;
         }
 
+        /* Smooth scrolling for exam paper */
+        #examScrollContainer {
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-y: contain;
+            scroll-behavior: smooth;
+        }
+
         /* Floating Toolbar */
         .floating-bar {
             position: fixed;
@@ -1671,6 +1678,10 @@
                 let isPanning = false;
                 let startY = 0;
                 let startScrollTop = 0;
+                let lastY = 0;
+                let lastTime = 0;
+                let velocity = 0;
+                let animationId = null;
 
                 const getPos = (e) => {
                     const rect = canvas.getBoundingClientRect();
@@ -1711,8 +1722,18 @@
                         // Pan Mode (Touch)
                         if (scrollContainer && e.pointerType === 'touch') {
                             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                            // Cancel any ongoing momentum scroll
+                            if (animationId) {
+                                cancelAnimationFrame(animationId);
+                                animationId = null;
+                            }
+
                             isPanning = true;
                             startY = e.clientY;
+                            lastY = e.clientY;
+                            lastTime = Date.now();
+                            velocity = 0;
                             startScrollTop = scrollContainer.scrollTop;
                             listenerTarget.setPointerCapture(e.pointerId);
                             e.preventDefault();
@@ -1733,13 +1754,49 @@
                         app.state.lastY = pos.y;
                     } else if (isPanning && scrollContainer) {
                         e.preventDefault();
+                        const currentTime = Date.now();
                         const dy = e.clientY - startY;
+                        const deltaY = e.clientY - lastY;
+                        const deltaTime = currentTime - lastTime;
+
+                        // Calculate velocity for momentum scrolling
+                        if (deltaTime > 0) {
+                            velocity = deltaY / deltaTime;
+                        }
+
                         scrollContainer.scrollTop = startScrollTop - dy;
+                        lastY = e.clientY;
+                        lastTime = currentTime;
                     }
                 };
 
                 const onPointerUp = (e) => {
                     app.state.isDrawing = false;
+
+                    // Start momentum scrolling if panning
+                    if (isPanning && scrollContainer && Math.abs(velocity) > 0.1) {
+                        const startMomentum = () => {
+                            const friction = 0.95; // Deceleration factor
+                            const minVelocity = 0.1; // Stop when velocity is too small
+
+                            const animate = () => {
+                                velocity *= friction;
+
+                                if (Math.abs(velocity) < minVelocity) {
+                                    animationId = null;
+                                    return;
+                                }
+
+                                scrollContainer.scrollTop -= velocity * 16; // ~60fps
+                                animationId = requestAnimationFrame(animate);
+                            };
+
+                            animationId = requestAnimationFrame(animate);
+                        };
+
+                        startMomentum();
+                    }
+
                     isPanning = false;
                     if (listenerTarget.hasPointerCapture(e.pointerId)) {
                         listenerTarget.releasePointerCapture(e.pointerId);
