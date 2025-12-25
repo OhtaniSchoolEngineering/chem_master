@@ -333,6 +333,10 @@
             pointer-events: none;
         }
 
+        .modal-nav-btn.left {
+            left: 20px;
+        }
+
         .modal-nav-btn.right {
             right: 20px;
         }
@@ -604,10 +608,15 @@
                 document.getElementById('mainFooter').classList.add('hidden');
                 app.renderDictionary();
             },
-            handleCloseButton: () => { if (app.state.fromScreen === 'dictionary') { app.goDictionary(); } else { app.goHome(); } },
+            handleCloseButton: () => {
+                if (app.state.fromScreen === 'dictionary') { app.goDictionary(); }
+                else if (app.state.fromScreen === 'mypage') { app.goMyPage(); }
+                else { app.goHome(); }
+            },
 
             cleanup: () => {
                 app.stopTimer();
+                window.scrollTo(0, 0);
                 if (app.state.resizeObserver) { app.state.resizeObserver.disconnect(); app.state.resizeObserver = null; }
                 document.body.classList.remove('mode-immersive');
                 document.getElementById('mainHeader').classList.remove('hidden');
@@ -615,8 +624,11 @@
                 document.body.style.background = '';
                 document.removeEventListener('keydown', app.handleQuizKeydown);
                 const c = document.getElementById('mainContainer');
-                c.className = 'flex-grow container mx-auto px-4 py-2 max-w-6xl transition-all duration-300';
-                c.style.width = ''; c.style.height = ''; c.style.overflow = '';
+                if (c) {
+                    c.scrollTop = 0;
+                    c.className = 'flex-grow container mx-auto px-4 py-2 max-w-6xl transition-all duration-300';
+                    c.style.width = ''; c.style.height = ''; c.style.overflow = '';
+                }
                 if (app.state.isAnswerSheetOpen) app.toggleAnswerSheet();
                 app.closeDictModal();
             },
@@ -1024,6 +1036,8 @@
             },
 
             renderExamSetup: (levelId) => {
+                const c = document.getElementById('mainContainer');
+                if (c) c.scrollTop = 0;
                 const html = `
                     <div class="animate-fade-in max-w-lg mx-auto w-full pt-12">
                         <button onclick="app.selectUnit(app.state.selectedUnit, app.state.selectedUnitName)" class="flex items-center text-slate-500 hover:text-indigo-600 mb-8 transition-colors group"><i class="ph ph-arrow-left text-xl mr-2 group-hover:-translate-x-1 transition-transform"></i><span class="font-medium">戻る</span></button>
@@ -1085,6 +1099,24 @@
                         </div>
                     </div>`;
                 document.getElementById('mainContainer').innerHTML = html;
+            },
+
+            startReviewSetup: () => {
+                if (app.state.mistakes.length === 0) {
+                    app.showAlert('現在、苦手な問題はありません。');
+                    return;
+                }
+                const questions = app.state.mistakes.map(id => {
+                    const q = window.questionPool.find(q => q.id === id);
+                    return q ? app.generateQuizQuestion(q) : null;
+                }).filter(q => q !== null);
+
+                if (questions.length === 0) {
+                    app.showAlert('問題データが見つかりませんでした。');
+                    return;
+                }
+
+                app.runQuiz(questions, 'review', 'mypage');
             },
 
             // --- QUIZ & EXAM LOGIC ---
@@ -1195,7 +1227,8 @@
                 // 3. Generate randomized options for selected questions
                 const quizList = filtered.map(q => app.generateQuizQuestion(q));
 
-                if (level === 4) app.runExam(quizList, 'normal'); else app.runQuiz(quizList, 'normal');
+                const fromScreen = app.state.currentScreen;
+                if (level === 4) app.runExam(quizList, 'normal', fromScreen); else app.runQuiz(quizList, 'normal', fromScreen);
             },
 
             // ==========================================
@@ -1219,6 +1252,7 @@
                 document.body.style.background = '#f0f4f8';
 
                 const c = document.getElementById('mainContainer');
+                c.scrollTop = 0;
                 c.className = 'w-full h-full p-0 m-0';
                 c.style.width = '100%';
                 c.style.height = '100.1vh';
@@ -1432,10 +1466,11 @@
             // ==========================================
             // EXAM MODE
             // ==========================================
-            runExam: (questions, mode = 'normal') => {
+            runExam: (questions, mode = 'normal', fromScreen = 'home') => {
                 app.cleanup();
                 app.state.quizList = questions;
                 app.state.mode = mode;
+                app.state.fromScreen = fromScreen;
                 app.state.mockAnswers = {};
                 app.state.currentScreen = 'exam';
                 app.state.scale = 1.0;
@@ -1448,6 +1483,7 @@
                 document.body.style.background = '#f0f4f8';
 
                 const c = document.getElementById('mainContainer');
+                c.scrollTop = 0;
                 c.className = 'w-full h-full p-0 m-0';
                 c.style.width = '100%';
                 c.style.height = '100.1vh';
@@ -1618,7 +1654,9 @@
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 app.state.canvasContext = ctx;
-                app.setPenColor(app.state.penColor);
+
+                // Set default pen color to black and ensure drawing is ready
+                app.setPenColor(app.state.penColor || '#333333');
                 app.addCanvasListeners(canvas, paper);
             },
             addCanvasListeners: (canvas, listenerTarget) => {
@@ -1764,7 +1802,14 @@
                 if (!target) return;
                 app.updateZoom(1.0, target);
             },
-            setPenColor: (color) => { app.state.penColor = color; if (app.state.canvasContext) { app.state.canvasContext.globalCompositeOperation = 'source-over'; app.state.canvasContext.strokeStyle = color; app.state.canvasContext.lineWidth = 2; } },
+            setPenColor: (color) => {
+                app.state.penColor = color;
+                if (app.state.canvasContext) {
+                    app.state.canvasContext.globalCompositeOperation = 'source-over';
+                    app.state.canvasContext.strokeStyle = color;
+                    app.state.canvasContext.lineWidth = 2;
+                }
+            },
             setPenMode: (mode) => { if (mode === 'eraser' && app.state.canvasContext) { app.state.canvasContext.globalCompositeOperation = 'destination-out'; app.state.canvasContext.lineWidth = 20; } },
             clearCanvas: () => { const canvas = document.getElementById('drawingCanvas'); if (canvas && app.state.canvasContext) app.state.canvasContext.clearRect(0, 0, canvas.width, canvas.height); },
             observePaperResize: () => {
