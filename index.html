@@ -1652,8 +1652,15 @@
                     canvas.style.height = h + 'px';
                 }
 
-                // Always disable browser handling to allow manual control (Pen/Pan/Zoom)
-                paper.style.touchAction = 'none';
+                // Configure touch handling based on mode
+                // For exam mode, allow native vertical scrolling when not in draw mode
+                // For quiz mode, disable all native handling
+                if (isQuiz) {
+                    paper.style.touchAction = 'none';
+                } else {
+                    // Exam mode: allow pan-y for smooth native scrolling
+                    paper.style.touchAction = 'pan-y';
+                }
 
                 const ctx = canvas.getContext('2d');
                 // Use setTransform to avoid accumulation of scales
@@ -1671,22 +1678,15 @@
 
                 // Scroll Container Identification
                 let scrollContainer = null;
-                if (listenerTarget.id === 'quizWrapper') scrollContainer = document.getElementById('quizLayer');
-                else if (listenerTarget.id === 'examPaper') scrollContainer = document.getElementById('examScrollContainer');
-
-                // State for gestures
-                let isPanning = false;
-                let startY = 0;
-                let startScrollTop = 0;
-                let lastY = 0;
-                let lastTime = 0;
-                let velocity = 0;
-                let animationId = null;
+                const isQuiz = (listenerTarget.id === 'quizWrapper');
+                if (isQuiz) {
+                    scrollContainer = document.getElementById('quizLayer');
+                } else {
+                    scrollContainer = document.getElementById('examScrollContainer');
+                }
 
                 const getPos = (e) => {
                     const rect = canvas.getBoundingClientRect();
-                    // In quiz mode, canvas is not scaled, so we don't divide by scale
-                    const isQuiz = (listenerTarget.id === 'quizWrapper');
                     const currentScale = isQuiz ? 1.0 : (app.state.scale || 1.0);
                     return {
                         x: (e.clientX - rect.left) / currentScale,
@@ -1718,27 +1718,9 @@
                         app.state.lastX = pos.x;
                         app.state.lastY = pos.y;
                         listenerTarget.setPointerCapture(e.pointerId);
-                    } else {
-                        // Pan Mode (Touch)
-                        if (scrollContainer && e.pointerType === 'touch') {
-                            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-                            // Cancel any ongoing momentum scroll
-                            if (animationId) {
-                                cancelAnimationFrame(animationId);
-                                animationId = null;
-                            }
-
-                            isPanning = true;
-                            startY = e.clientY;
-                            lastY = e.clientY;
-                            lastTime = Date.now();
-                            velocity = 0;
-                            startScrollTop = scrollContainer.scrollTop;
-                            listenerTarget.setPointerCapture(e.pointerId);
-                            e.preventDefault();
-                        }
                     }
+                    // For exam mode in pan mode, let native scrolling handle it
+                    // No custom pan handling needed
                 };
 
                 const onPointerMove = (e) => {
@@ -1752,52 +1734,11 @@
                         ctx.stroke();
                         app.state.lastX = pos.x;
                         app.state.lastY = pos.y;
-                    } else if (isPanning && scrollContainer) {
-                        e.preventDefault();
-                        const currentTime = Date.now();
-                        const dy = e.clientY - startY;
-                        const deltaY = e.clientY - lastY;
-                        const deltaTime = currentTime - lastTime;
-
-                        // Calculate velocity for momentum scrolling
-                        if (deltaTime > 0) {
-                            velocity = deltaY / deltaTime;
-                        }
-
-                        scrollContainer.scrollTop = startScrollTop - dy;
-                        lastY = e.clientY;
-                        lastTime = currentTime;
                     }
                 };
 
                 const onPointerUp = (e) => {
                     app.state.isDrawing = false;
-
-                    // Start momentum scrolling if panning
-                    if (isPanning && scrollContainer && Math.abs(velocity) > 0.1) {
-                        const startMomentum = () => {
-                            const friction = 0.95; // Deceleration factor
-                            const minVelocity = 0.1; // Stop when velocity is too small
-
-                            const animate = () => {
-                                velocity *= friction;
-
-                                if (Math.abs(velocity) < minVelocity) {
-                                    animationId = null;
-                                    return;
-                                }
-
-                                scrollContainer.scrollTop -= velocity * 16; // ~60fps
-                                animationId = requestAnimationFrame(animate);
-                            };
-
-                            animationId = requestAnimationFrame(animate);
-                        };
-
-                        startMomentum();
-                    }
-
-                    isPanning = false;
                     if (listenerTarget.hasPointerCapture(e.pointerId)) {
                         listenerTarget.releasePointerCapture(e.pointerId);
                     }
